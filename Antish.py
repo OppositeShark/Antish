@@ -7,7 +7,8 @@ Created on Tue Sep 21 12:26:58 2021
 #%% Importing
 import pygame
 #importing stuff
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageChops, ImageFilter
+import os
 import random
 import math
 import threading
@@ -15,7 +16,7 @@ import threading
 #%%Setup
 
 #Window Size
-width=300
+width=500
 height=width
 
 #Seed
@@ -25,11 +26,11 @@ wallWidth=2
 
 #Angles and Sight
 randomWalk=math.radians(3)
-angs=(45,)
+angs=(80,)
 seeAngs={math.radians(i*s):1 for i in angs for s in (-1,1)}
 seeAngs[0]=1
-seeDist=2
-maxturn=math.radians(50)
+seeDist=1
+maxturn=math.radians(45)
 #Speed
 maxSpeed=1
 acceleration=0.1
@@ -38,27 +39,24 @@ wallweight=-1000
 distWeight=lambda d:0.9**d
 #Number of Ants
 
-numants=100
-numType = 10
+numants=1000
+numType = 3
 
 startX=width/2
 startY=height/2
 #Threading
 numThreads=4
 #Lasting Pheromones
-fadeRate=0
+fadeRate=1
 #%%Starting
-global BP
-global BPheromones
-
 def ResetImgs():
     #Pheromones
     #Trail away from the nest
     global FieldImg
-    FieldImg=Image.new("RGBA",(width,height),(0,0,255,0))
-    global Field
-    Field=FieldImg.load()
     global FieldDraw
+    global Field
+    FieldImg=Image.new("RGBA",(width,height),(0,0,0,0))
+    Field=FieldImg.load()
     FieldDraw = ImageDraw.Draw(FieldImg)
                 
 ResetImgs()
@@ -115,7 +113,8 @@ def lerpColors(color1,color2,t):
     return tuple([lerp(color1[i],color2[i],t) for i in range(len(color1))])
 
 def ColorsAreClose(color1,color2,threshold):
-    r,g,b = [color1[i]+color2[i] for i in range(3)]
+    
+    r,g,b = [color1[i]-color2[i] for i in range(3)]
     return math.sqrt(sum([i**2 for i in (r,g,b)]))<threshold
 
 class antish():
@@ -164,17 +163,14 @@ class antish():
                 #Distance Weight
                 iWeight=distWeight(i)
                 PixVal = Field[x,y]
-                #Check if it's blank
-                if PixVal==CLEAR:
-                    pass
                 #Checking if theres a wall
-                elif PixVal==WALL:
+                if PixVal==WALL:
                     choice[ang]+=iWeight*wallweight
                     break
-                for val in self.rules.keys():
+                for key, val in self.rules.items():
                     #rules[0] is the threshold and rules[1] is the function
-                    if ColorsAreClose(PixVal[:3],val,self.rules[val][0]):
-                        choice[ang]+=self.rules[val][1](PixVal[3])
+                    if ColorsAreClose(PixVal[:3],key,val[0]):
+                        choice[ang]+=val[1](PixVal[3])
                 
             #Angle Weight
             if abs(choice[ang])>=1:
@@ -182,6 +178,13 @@ class antish():
             else:
                 choice[ang]/=weight
         
+        maxVal = max(choice.values())
+        maxChoice = {}
+        for k, v in choice.items():
+            if v==maxVal:
+                maxChoice[k]=v
+        return maxChoice
+        '''
         #Shift and Expand distances between Values
         minWeight = min(choice.values())
         if minWeight>0:
@@ -194,6 +197,7 @@ class antish():
         if totalWeight==0:
             return seeAngs
         return choice
+        '''
     
     def move(self):
         #Move Forward
@@ -266,32 +270,55 @@ def drawMaze():
     drawWalls()
     
 #%%Main Function
-#Fading Pheromones
-def fade(PixelAccess):
-    for x in range(width):
-        for y in range(height):
-            color=PixelAccess[x,y]
-            if color[3]==0:
-                continue
-            PixelAccess[x,y]=color[:3]+(color[3]-1,)
-            updatePixel(x,y)
-            
+
 def saveImgs():
     FieldImg.save("Antish.png","PNG")
+
+# importing os module
+
+if not os.path.isdir(os.path.abspath("Saved_Images")):
+    # Directory
+    directory = "Saved_Images"
+      
+    # Parent Directory path
+    parent_dir = os.path.abspath("")
+      
+    # Path
+    path = os.path.join(parent_dir, directory)
+      
+    # Create the directory
+    # 'GeeksForGeeks' in
+    # '/home / User / Documents'
+    os.mkdir(path)
+      
+def inputSave():
+    save = input("Save or Quit?")
+    if save=="q":
+        global running
+        running = False
+    elif save=="s":
+        num = str(len(os.listdir(os.path.abspath("Saved_Images"))))+".png"
+        FieldImg.save(os.path.abspath("Saved_Images")+"\\"+num,"png")
+    inputSave()
 
 def runSimulation():
     '''
     Runs the simulation
     '''
+    #Save Images
+    x = threading.Thread(target=inputSave, daemon=True)
+    x.start()
+    #Make Antish
+    global running
     running=True
     colors=[]
     for i in range(numType):
         colors.append(tuple([random.randint(1, 255) for i in range(3)]))
     for i in range(numType):
         numTypeAnts = round(numants/numType)
-        colorThreshold = random.randint(20,50)
-        colorWeight = random.uniform(-1,1)
-        rules = {c:[colorThreshold,lambda a:a*colorWeight] for c in colors}
+        colorThreshold = random.randint(10, 30)
+        colorImpact = {c:random.uniform(-1,1) for c in colors}
+        rules = {c:[colorThreshold, lambda a:a*colorImpact[c] ] for c in colors}
         makeAntType(numTypeAnts, colors[i], random.uniform(0.1,1), rules, random.uniform(50,250))
     
     #Starting Pygame
@@ -300,7 +327,8 @@ def runSimulation():
     pygame.display.set_caption("Antish Simulation")
     
     #Initial Map
-    screen.fill((255,255,255,255))
+    global FieldImg
+    screen.fill(WHITE)
     FieldImg.save("Field.png","PNG")
     pygField=pygame.image.load("Field.png")
     for i in (pygField,):
@@ -333,11 +361,6 @@ def runSimulation():
             #Quitting
             if event.type==pygame.QUIT:
                 running=False
-            #Key Down
-            elif event.type==2:
-                #Down Button
-                if event.key==274:
-                    saveImgs()
                 
         #Background
         screen.fill((255,255,255,255))
@@ -345,11 +368,8 @@ def runSimulation():
         #Calculations
         #Ant Movement
         threadAnts(runAnts)
-        
-        #Pheromone Reduction
+
         global frameNum
-        if fadeRate!=0 and frameNum%fadeRate==0:
-            fade(Field)
     
         #Drawing Pheromones, Food, and Walls
         pygField=pygame.image.fromstring(FieldImg.tobytes(), FieldImg.size, FieldImg.mode)
